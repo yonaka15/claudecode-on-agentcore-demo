@@ -338,29 +338,9 @@ aws bedrock-agentcore create-gateway \
 
 **Note**: AgentCore Gateway is for **outbound** access (agent → external tools), not for inbound access (user → agent). This project implements inbound access via API Gateway + Lambda.
 
-## Documentation
-
-- **AGENTS.md**: Technical documentation for AI agents
-- **SETUP_LOG.md**: Detailed deployment history and troubleshooting
-- **CLAUDE.md**: Symlink to AGENTS.md
-
 ## References
 
 - [AWS Sample Repository](https://github.com/aws-samples/anthropic-on-aws/tree/main/claude-code-on-agentcore)
 - [Amazon Bedrock AgentCore Documentation](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/)
 - [Claude Agent SDK](https://github.com/anthropics/claude-code)
 - [AgentCore Gateway Documentation](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway.html)
-
-## License
-
-This project is based on AWS samples and follows the same licensing terms.
-
-## Contributing
-
-Contributions are welcome! Please refer to the original [aws-samples repository](https://github.com/aws-samples/anthropic-on-aws) for contribution guidelines.
-
-## Support
-
-For issues and questions:
-- AWS Support: https://aws.amazon.com/support
-- GitHub Issues: https://github.com/aws-samples/anthropic-on-aws/issues
