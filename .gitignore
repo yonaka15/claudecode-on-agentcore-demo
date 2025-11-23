@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.uv/
+
+# AWS
+deployment.json
+response*.json
+.api_key
+
+# Setup documentation (Japanese)
+SETUP_LOG.md
+
+# Outputs
+outputs/
+downloads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

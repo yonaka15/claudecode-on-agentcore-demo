@@ -1,0 +1,480 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Infrastructure for Claude Code on AgentCore - IAM Role, S3 Bucket, and ECR Repository'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: claude-code-agent
+    Description: Project name used for resource naming
+
+  AgentCoreRuntimeArn:
+    Type: String
+    Description: ARN of the deployed AgentCore runtime (required for Lambda)
+    Default: ''
+
+Resources:
+  # S3 Bucket for file outputs
+  OutputBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldFiles
+            Status: Enabled
+            ExpirationInDays: 30
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-outputs'
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # ECR Repository for Docker image
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      ImageTagMutability: MUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 5 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 5
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-ecr'
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # IAM Role for AgentCore Runtime
+  AgentCoreExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - bedrock-agentcore.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/CloudWatchLogsFullAccess'
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: BedrockModelAccess
+                Effect: Allow
+                Action:
+                  - 'bedrock:InvokeModel'
+                  - 'bedrock:InvokeModelWithResponseStream'
+                Resource:
+                  - 'arn:aws:bedrock:*::foundation-model/*'
+                  - 'arn:aws:bedrock:*:*:inference-profile/*'
+              - Sid: MarketplaceAccess
+                Effect: Allow
+                Action:
+                  - 'aws-marketplace:ViewSubscriptions'
+                  - 'aws-marketplace:Subscribe'
+                Resource: '*'
+
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: OutputBucketAccess
+                Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                  - 's3:GetObject'
+                  - 's3:DeleteObject'
+                  - 's3:ListBucket'
+                Resource:
+                  - !GetAtt OutputBucket.Arn
+                  - !Sub '${OutputBucket.Arn}/*'
+              - Sid: WebsiteBucketAccess
+                Effect: Allow
+                Action:
+                  - 's3:CreateBucket'
+                  - 's3:ListBucket'
+                  - 's3:GetBucket*'
+                  - 's3:PutBucket*'
+                  - 's3:DeleteBucket'
+                  - 's3:GetObject'
+                  - 's3:PutObject'
+                  - 's3:PutObjectAcl'
+                  - 's3:DeleteObject'
+                  - 's3:GetObjectAcl'
+                  - 's3:GetBucketLocation'
+                  - 's3:GetBucketWebsite'
+                  - 's3:PutBucketWebsite'
+                  - 's3:PutBucketPolicy'
+                  - 's3:GetBucketPolicy'
+                  - 's3:PutBucketPublicAccessBlock'
+                  - 's3:GetBucketPublicAccessBlock'
+                Resource:
+                  - 'arn:aws:s3:::claude-code-*'
+                  - 'arn:aws:s3:::claude-code-*/*'
+
+        - PolicyName: CloudFrontAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudFrontOperations
+                Effect: Allow
+                Action:
+                  - 'cloudfront:CreateDistribution'
+                  - 'cloudfront:GetDistribution'
+                  - 'cloudfront:GetDistributionConfig'
+                  - 'cloudfront:UpdateDistribution'
+                  - 'cloudfront:DeleteDistribution'
+                  - 'cloudfront:ListDistributions'
+                  - 'cloudfront:TagResource'
+                  - 'cloudfront:CreateInvalidation'
+                Resource: '*'
+
+        - PolicyName: ECRAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ECROperations
+                Effect: Allow
+                Action:
+                  - 'ecr:GetAuthorizationToken'
+                  - 'ecr:BatchCheckLayerAvailability'
+                  - 'ecr:GetDownloadUrlForLayer'
+                  - 'ecr:BatchGetImage'
+                Resource: '*'
+
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-role'
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BedrockAgentCoreAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:InvokeAgentRuntime
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-lambda-role'
+
+  # Lambda Function for AgentCore invocation
+  AgentCoreLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-api'
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 900
+      MemorySize: 512
+      Environment:
+        Variables:
+          AGENTCORE_RUNTIME_ARN: !Ref AgentCoreRuntimeArn
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import base64
+          import boto3
+          from typing import Dict, Any
+
+          # bedrock-agentcore client
+          client = boto3.client('bedrock-agentcore')
+
+          def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+              try:
+                  # Parse request body
+                  if 'body' in event:
+                      if event.get('isBase64Encoded', False):
+                          body = json.loads(base64.b64decode(event['body']))
+                      else:
+                          body = json.loads(event['body'])
+                  else:
+                      body = event
+
+                  # Extract parameters
+                  prompt = body.get('prompt')
+                  if not prompt:
+                      return {
+                          'statusCode': 400,
+                          'headers': {'Content-Type': 'application/json'},
+                          'body': json.dumps({'error': 'Missing required field: prompt'})
+                      }
+
+                  permission_mode = body.get('permission_mode', 'acceptEdits')
+                  allowed_tools = body.get('allowed_tools', 'Bash,Read,Write,Replace,Search,List,WebFetch,AskFollowup')
+
+                  # Build AgentCore payload
+                  agentcore_payload = {
+                      'input': {
+                          'prompt': prompt,
+                          'permission_mode': permission_mode,
+                          'allowed_tools': allowed_tools
+                      }
+                  }
+
+                  # Invoke AgentCore runtime
+                  runtime_arn = os.environ['AGENTCORE_RUNTIME_ARN']
+
+                  response = client.invoke_agent_runtime(
+                      agentRuntimeArn=runtime_arn,
+                      contentType='application/json',
+                      accept='application/json',
+                      payload=json.dumps(agentcore_payload).encode('utf-8')
+                  )
+
+                  # Parse response stream
+                  response_body = response['response'].read()
+                  result = json.loads(response_body.decode('utf-8'))
+
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
+                      'body': json.dumps(result, ensure_ascii=False)
+                  }
+
+              except Exception as e:
+                  print(f"Error invoking AgentCore: {str(e)}")
+                  import traceback
+                  traceback.print_exc()
+                  return {
+                      'statusCode': 500,
+                      'headers': {'Content-Type': 'application/json'},
+                      'body': json.dumps({'error': str(e)})
+                  }
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-lambda'
+
+  # Lambda Permission for API Gateway
+  LambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AgentCoreLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${AgentCoreApi}/*'
+
+  # API Gateway REST API
+  AgentCoreApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${ProjectName}-api'
+      Description: HTTP API for invoking Claude Code AgentCore runtime
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-api'
+
+  # API Gateway Resource
+  ApiInvokeResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref AgentCoreApi
+      ParentId: !GetAtt AgentCoreApi.RootResourceId
+      PathPart: invoke
+
+  # API Gateway POST Method
+  ApiInvokeMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AgentCoreApi
+      ResourceId: !Ref ApiInvokeResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      ApiKeyRequired: true
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AgentCoreLambda.Arn}/invocations'
+        IntegrationResponses:
+          - StatusCode: 200
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: Empty
+
+  # API Gateway OPTIONS Method (CORS)
+  ApiInvokeOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref AgentCoreApi
+      ResourceId: !Ref ApiInvokeResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # API Gateway Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ApiInvokeMethod
+      - ApiInvokeOptionsMethod
+    Properties:
+      RestApiId: !Ref AgentCoreApi
+      StageName: prod
+
+  # API Key
+  ApiKey:
+    Type: AWS::ApiGateway::ApiKey
+    DependsOn: ApiDeployment
+    Properties:
+      Name: !Sub '${ProjectName}-api-key'
+      Description: API Key for AgentCore invocation
+      Enabled: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-api-key'
+
+  # Usage Plan
+  ApiUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    DependsOn: ApiDeployment
+    Properties:
+      UsagePlanName: !Sub '${ProjectName}-usage-plan'
+      Description: Usage plan for AgentCore API
+      ApiStages:
+        - ApiId: !Ref AgentCoreApi
+          Stage: prod
+      Throttle:
+        RateLimit: 10
+        BurstLimit: 20
+      Quota:
+        Limit: 1000
+        Period: DAY
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-usage-plan'
+
+  # Usage Plan Key (associates API Key with Usage Plan)
+  ApiUsagePlanKey:
+    Type: AWS::ApiGateway::UsagePlanKey
+    Properties:
+      KeyId: !Ref ApiKey
+      KeyType: API_KEY
+      UsagePlanId: !Ref ApiUsagePlan
+
+Outputs:
+  RoleArn:
+    Description: ARN of the IAM role for AgentCore runtime
+    Value: !GetAtt AgentCoreExecutionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'
+
+  OutputBucketName:
+    Description: Name of the S3 bucket for file outputs
+    Value: !Ref OutputBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-OutputBucket'
+
+  OutputBucketArn:
+    Description: ARN of the S3 bucket for file outputs
+    Value: !GetAtt OutputBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-OutputBucketArn'
+
+  EcrRepositoryUri:
+    Description: URI of the ECR repository
+    Value: !GetAtt EcrRepository.RepositoryUri
+    Export:
+      Name: !Sub '${AWS::StackName}-EcrUri'
+
+  EcrRepositoryName:
+    Description: Name of the ECR repository
+    Value: !Ref EcrRepository
+    Export:
+      Name: !Sub '${AWS::StackName}-EcrName'
+
+  Region:
+    Description: AWS Region
+    Value: !Ref AWS::Region
+    Export:
+      Name: !Sub '${AWS::StackName}-Region'
+
+  AccountId:
+    Description: AWS Account ID
+    Value: !Ref AWS::AccountId
+    Export:
+      Name: !Sub '${AWS::StackName}-AccountId'
+
+  ApiEndpoint:
+    Description: API Gateway endpoint URL for invoking AgentCore
+    Value: !Sub 'https://${AgentCoreApi}.execute-api.${AWS::Region}.amazonaws.com/prod/invoke'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt AgentCoreLambda.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaArn'
+
+  ApiKeyId:
+    Description: ID of the API Gateway API Key
+    Value: !Ref ApiKey
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiKeyId'
