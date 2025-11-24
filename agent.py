@@ -1,8 +1,8 @@
 """
 Claude Code Agent for Amazon Bedrock AgentCore
 
-This agent runs Claude Code (Cline) in headless mode to autonomously handle coding tasks.
-It accepts natural language prompts and executes them using Claude Code's CLI.
+This agent runs Claude Code in headless mode via the Claude Agent SDK to autonomously handle coding tasks.
+It accepts natural language prompts and executes them using the Claude Agent SDK's query() interface.
 Configured to use Amazon Bedrock for model inference.
 """
 

@@ -1,7 +1,7 @@
 [project]
 name = "claude-code-agent"
 version = "1.0.0"
-description = "Claude Code (Cline) Agent for Amazon Bedrock AgentCore"
+description = "Claude Code Agent for Amazon Bedrock AgentCore (via Claude Agent SDK)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi",
